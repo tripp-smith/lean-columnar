@@ -1,0 +1,12 @@
+[submodule "vendor/parquet-testing"]
+	path = vendor/parquet-testing
+	url = https://github.com/apache/parquet-testing.git
+[submodule "vendor/avro"]
+	path = vendor/avro
+	url = https://github.com/apache/avro.git
+[submodule "vendor/orc"]
+	path = vendor/orc
+	url = https://github.com/apache/orc.git
+[submodule "vendor/arrow-testing"]
+	path = vendor/arrow-testing
+	url = https://github.com/apache/arrow-testing.git
