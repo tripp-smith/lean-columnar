@@ -60,8 +60,10 @@ def BitReader.refill (br : BitReader) : P BitReader :=
 
 def BitReader.refillWhile (br : BitReader) (need : Nat) : P BitReader := do
   let mut br := br
-  let fuel := br.data.size - br.bytePos + 16
-  for _ in List.range fuel do
+  -- Each refill adds ≤8 bits; never need more than `8 * bytesRemaining + slack` iterations.
+  let bytesRem := if br.bytePos ≤ br.data.size then br.data.size - br.bytePos else 0
+  let fuel := bytesRem * 8 + 32
+  for _ in [:fuel] do
     if br.bitsInBuffer >= need then
       return br
     br ← br.refill

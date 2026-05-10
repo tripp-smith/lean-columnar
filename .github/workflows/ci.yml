@@ -21,7 +21,16 @@ jobs:
 
       - name: Bench (quick)
         shell: bash
-        run: lake exe bench -- --quick
+        env:
+          COLUMNAR_BENCH_QUICK: "1"
+        run: lake exe bench
+
+      - name: Mmap harness (FFI smoke, macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          COLUMNAR_FORCE_MMAP: "1"
+        run: lake exe mmap_harness -- --scenario ffi --file Tests/fixtures/two_row_groups_plain.parquet
 
       - name: Conformance report stub
         shell: bash
@@ -43,3 +52,57 @@ jobs:
       - uses: leanprover/lean-action@v1
         with:
           auto-config: "true"
+      - name: Parquet conformance (lake exe tests)
+        shell: bash
+        env:
+          COLUMNAR_PHASE1_EXPLORE: "0"
+        run: lake exe tests
+      - name: Canonical writer round-trip (pandas + fastparquet)
+        shell: bash
+        run: |
+          python3 -m pip install --quiet pandas fastparquet pyarrow
+          python3 scripts/parquet_roundtrip_smoke.py
+
+  conformance-parquet-native-codecs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native codec development packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsnappy-dev libzstd-dev zlib1g-dev libbrotli-dev liblz4-dev
+      - name: Fetch parquet-testing
+        shell: bash
+        run: bash scripts/fetch-fixtures.sh
+      - uses: leanprover/lean-action@v1
+        with:
+          auto-config: "true"
+      - name: Build and test (native decompress FFI)
+        shell: bash
+        env:
+          COLUMNAR_CODEC: "1"
+          COLUMNAR_PHASE1_EXPLORE: "0"
+          COLUMNAR_ENCODING_TIER_STRICT: "1"
+        run: |
+          lake build -Kcolumnar.codec=1
+          lake exe tests -Kcolumnar.codec=1
+
+  scilean-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OpenBLAS (SciLean / LeanBLAS)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopenblas-dev
+      - uses: leanprover/lean-action@v1
+        with:
+          auto-config: "true"
+      - name: SciLean tensor bridge (optional stack)
+        shell: bash
+        env:
+          COLUMNAR_SCILEAN: "1"
+        run: |
+          lake update
+          lake build -Kcolumnar.scilean=1 ColumnarSciLean
+          lake exe scilean_tests -Kcolumnar.scilean=1

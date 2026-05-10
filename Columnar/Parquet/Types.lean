@@ -12,10 +12,17 @@ def PhysType.double : Nat := 5
 def PhysType.byteArray : Nat := 6
 def PhysType.fixedLenByteArray : Nat := 7
 
-/-- `Encoding` enum -/
+/-- `Encoding` enum (parquet.thrift) -/
 abbrev Encoding := Nat
 def Encoding.plain : Nat := 0
+def Encoding.plainDictionary : Nat := 2
 def Encoding.rle : Nat := 3
+def Encoding.bitPackedDeprecated : Nat := 4
+def Encoding.deltaBinaryPacked : Nat := 5
+def Encoding.deltaLengthByteArray : Nat := 6
+def Encoding.deltaByteArray : Nat := 7
+def Encoding.rleDictionary : Nat := 8
+def Encoding.byteStreamSplit : Nat := 9
 
 /-- `PageType` enum -/
 abbrev PageType := Nat

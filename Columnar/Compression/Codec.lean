@@ -23,6 +23,16 @@ def CodecId.fromParquet (n : Nat) : CodecId :=
   | 7 => .lz4Raw
   | _ => .uncompressed
 
+/-- Parquet `CompressionCodec` enum value (`parquet.thrift`). -/
+def CodecId.toParquet (c : CodecId) : Nat :=
+  match c with
+  | .uncompressed => 0
+  | .snappy => 1
+  | .gzip => 2
+  | .brotli => 4
+  | .zstd => 6
+  | .lz4Raw => 7
+
 def decompress (id : CodecId) (input : ByteArray) (uncompressedSize : Nat) : IO ByteArray :=
   match id with
   | .uncompressed => return input

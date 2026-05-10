@@ -58,6 +58,13 @@ def TReader.readZigZag64 (tr : TReader) : P (Int64 × TReader) := do
   let (v, newPos) ← readZigZagInt64 tr.bytes tr.pos
   return (v, { tr with pos := newPos })
 
+/-- Thrift compact `BYTE` (signed int8). -/
+def TReader.readSignedByte (tr : TReader) : P (Int32 × TReader) := do
+  let (b, tr) ← tr.readByte
+  let n := b.toNat
+  let i := Int.ofNat n - if n < 0x80 then 0 else 256
+  return (Int32.ofInt i, tr)
+
 def TReader.readBinary (tr : TReader) : P (ByteArray × TReader) := do
   let (lenU, tr) ← tr.readULEB
   let len := lenU.toNat
@@ -90,6 +97,7 @@ inductive TValue where
   | tbinary (b : ByteArray)
   | tstring (s : String)
   | tlist (elemType : UInt8) (xs : Array TValue)
+  | tmap (keyType valType : UInt8) (entries : Array (TValue × TValue))
   | tstruct (fields : Array (Nat × TValue))
   deriving Inhabited
 
@@ -97,6 +105,9 @@ partial def readTValue (typeId : UInt8) (tr : TReader) : P (TValue × TReader) :
   match typeId.toNat with
   | 1 => return (TValue.tbool true, tr)
   | 2 => return (TValue.tbool false, tr)
+  | 3 => do let (n, tr) ← tr.readSignedByte; return (TValue.ti32 n, tr)
+  -- Apache compact CT_I16 (4) and CT_I32 (5): both use zigzag varint on the wire (same read path as official Java/C++ clients).
+  | 4 => do let (n, tr) ← tr.readZigZag32; return (TValue.ti32 n, tr)
   | 5 => do let (n, tr) ← tr.readZigZag32; return (TValue.ti32 n, tr)
   | 6 => do let (n, tr) ← tr.readZigZag64; return (TValue.ti64 n, tr)
   | 7 => do let (d, tr) ← tr.readDoubleLE; return (TValue.tdouble d, tr)
@@ -109,15 +120,55 @@ partial def readTValue (typeId : UInt8) (tr : TReader) : P (TValue × TReader) :
       let (len, tr) ←
         if sizeHi != 15 then pure (sizeHi, tr)
         else do let (u, tr) ← tr.readULEB; pure (u.toNat, tr)
+      if len > 10000000 then throw "Thrift: list size too large"
       let mut tr := tr
       let mut xs : Array TValue := #[]
-      for _ in List.range len do
+      for _ in [:len] do
         match readTValue elemType tr with
         | .error e => throw e
         | .ok (v, tr') =>
           xs := xs.push v
           tr := tr'
       return (TValue.tlist elemType xs, tr)
+  -- SET: same wire as LIST (`readSetBegin` = `readListBegin` in Apache Thrift).
+  | 10 =>
+    do
+      let (hb, tr) ← tr.readByte
+      let elemType := hb &&& 0x0f
+      let sizeHi := (hb >>> 4).toNat
+      let (len, tr) ←
+        if sizeHi != 15 then pure (sizeHi, tr)
+        else do let (u, tr) ← tr.readULEB; pure (u.toNat, tr)
+      if len > 10000000 then throw "Thrift: set size too large"
+      let mut tr := tr
+      let mut xs : Array TValue := #[]
+      for _ in [:len] do
+        match readTValue elemType tr with
+        | .error e => throw e
+        | .ok (v, tr') =>
+          xs := xs.push v
+          tr := tr'
+      return (TValue.tlist elemType xs, tr)
+  | 11 =>
+    do
+      let (lenU, tr) ← tr.readULEB
+      let sz := lenU.toNat
+      if sz > 10000000 then throw "Thrift: map size too large"
+      let (kt, vt, tr) ←
+        if sz == 0 then pure ((0 : UInt8), (0 : UInt8), tr)
+        else do
+          let (kv, tr) ← tr.readByte
+          let kt : UInt8 := kv >>> 4
+          let vt : UInt8 := kv &&& 0x0f
+          pure (kt, vt, tr)
+      let mut tr := tr
+      let mut acc : Array (TValue × TValue) := #[]
+      for _ in [:sz] do
+        let (k, tr') ← readTValue kt tr
+        let (v, tr'') ← readTValue vt tr'
+        acc := acc.push (k, v)
+        tr := tr''
+      return (TValue.tmap kt vt acc, tr)
   | 12 =>
     let rec go (tr : TReader) (lastId : Int32) (acc : Array (Nat × TValue)) : P (TValue × TReader) := do
       let (hdr, tr) ← tr.readFieldHeader lastId

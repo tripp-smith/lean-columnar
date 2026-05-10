@@ -52,6 +52,11 @@ def expectI32 (tv : Thrift.TValue) : P Int32 :=
   | .ti32 n => return n
   | _ => throw "expected i32"
 
+def expectBool (tv : Thrift.TValue) : P Bool :=
+  match tv with
+  | .tbool b => return b
+  | _ => throw "expected bool"
+
 def expectI64 (tv : Thrift.TValue) : P Int64 :=
   match tv with
   | .ti64 n => return n
