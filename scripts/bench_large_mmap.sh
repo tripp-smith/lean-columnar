@@ -21,5 +21,5 @@ COLUMNAR_WRITER_PATH="$OUT" COLUMNAR_WRITER_ROWS="$ROWS" COLUMNAR_WRITER_RG_SIZE
 echo "bench_large_mmap: timing readParquet vs readParquetMmap (LARGE=1 → 1 iteration by default)..."
 COLUMNAR_BENCH_FILE="$OUT" COLUMNAR_BENCH_LARGE=1 COLUMNAR_BENCH_MMAP=1 lake exe bench
 
-echo "bench_large_mmap: results in bench/results/last-quick.json — for RSS run e.g."
+echo "bench_large_mmap: results in bench/results/last-quick.json (workloads[] includes parquet_binary and parquet_mmap when COLUMNAR_BENCH_MMAP=1) — for RSS run e.g."
 echo "  /usr/bin/time -v lake exe bench   # with same COLUMNAR_* env as above"

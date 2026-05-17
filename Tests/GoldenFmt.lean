@@ -35,15 +35,22 @@ def byteArraySingletonNat (b : ByteArray) : Option Nat :=
   else
     none
 
-def cellAsGoldenString (pv : PlainValue) : String :=
+def cellAsGoldenString (pv : PlainValue) (kindStr : String := "") : String :=
   match pv with
-  | .bool b => if b then "1" else "0"
+  | .bool b =>
+      if kindStr == "bool" then if b then "true" else "false"
+      else if b then "1" else "0"
   | .int32 n => n.toInt.repr
   | .int64 n => n.toInt.repr
   | .byteArray b =>
-      match byteArraySingletonNat b with
-      | none => "<<multi_byte_array>>"
-      | some n => n.repr
+      if kindStr == "utf8" then
+        match String.fromUTF8? b with
+        | none => "<<invalid_utf8>>"
+        | some s => s
+      else
+        match byteArraySingletonNat b with
+        | none => "<<multi_byte_array>>"
+        | some n => n.repr
   | _ => "<<unsupported_plain_value_kind>>"
 
 def columnByName (t : Table) (name : String) : Option Column :=
@@ -65,8 +72,8 @@ def goldenMatches (t : Table) (g : ParsedGolden) : Except String Unit :=
           | none => throw s!"row {idx}: golden OOB"
           | some raw =>
             let gs := (String.trimAscii raw).toString
-            unless cellAsGoldenString pv == gs do
-              throw s!"row {idx}: «{g.column}» got {cellAsGoldenString pv} want {gs}"
+            unless cellAsGoldenString pv g.kindStr == gs do
+              throw s!"row {idx}: «{g.column}» got {cellAsGoldenString pv g.kindStr} want {gs}"
             pure ()
       return ()
 

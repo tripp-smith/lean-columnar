@@ -1,1 +1,0 @@
-{ "workload": "readParquet", "file": "vendor/parquet-testing/data/binary.parquet", "iterations": 30, "elapsed_ms_total": 2, "mean_ms": 0, "mode": "quick" }

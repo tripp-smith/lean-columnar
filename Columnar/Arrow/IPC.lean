@@ -481,4 +481,103 @@ def readArrowIpcStreamFile (path : System.FilePath) : IO (P Table) := do
   let bytes ← IO.FS.readBinFile path
   pure (readArrowIpcStreamFromBytes bytes)
 
+def fileMagicArrow1 : ByteArray :=
+  ByteArray.mk #[65, 82, 82, 79, 87, 49] -- "ARROW1"
+
+def fileHasArrowMagic (b : ByteArray) (off : Nat) : Bool :=
+  off + 6 ≤ b.size && b.extract off (off + 6) == fileMagicArrow1
+
+/-- Parse `Footer.recordBatches[0]` → (offset, metadataLength, bodyLength).
+`recordBatches` is a vector of inline `Block` structs (not table offsets). -/
+def parseFooterFirstRecordBatchBlock (footer : ByteArray) : P (Int64 × Int64 × Int64) := do
+  let rootU ← match readUInt32LE footer 0 with
+    | none => throw "Arrow IPC file: footer root"
+    | some u => pure u.toNat
+  let footObj := rootU
+  let fvt ← match tableVtable footer footObj with
+    | none => throw "Arrow IPC file: Footer vtable"
+    | some x => pure x
+  let batchesSlot ← match vtableFieldOffset footer fvt 3 with
+    | none => throw "Arrow IPC file: Footer.recordBatches missing"
+    | some fo => pure (fieldAddr footObj fo)
+  let vec ← match followUOffset footer batchesSlot with
+    | none => throw "Arrow IPC file: recordBatches vector"
+    | some vs => pure vs
+  if vec + 4 > footer.size then throw "Arrow IPC file: recordBatches header"
+  let n ← match readUInt32LE footer vec with
+    | none => throw "Arrow IPC file: recordBatches len"
+    | some nu => pure nu.toNat
+  if n == 0 then throw "Arrow IPC file: no record batches"
+  let blockStart := vec + 4
+  if blockStart + 24 > footer.size then throw "Arrow IPC file: Block struct truncated"
+  let off ← match readInt64LE footer blockStart with
+    | none => throw "Arrow IPC file: Block.offset read"
+    | some x => pure x
+  let metaLen ← match readInt32LE footer (blockStart + 8) with
+    | none => throw "Arrow IPC file: Block.metaDataLength read"
+    | some x => pure (Int64.ofInt (Int32.toInt x))
+  let bodyLen ← match readInt64LE footer (blockStart + 16) with
+    | none => throw "Arrow IPC file: Block.bodyLength read"
+    | some x => pure x
+  pure (off, metaLen, bodyLen)
+
+def parseFooterSchema (footer : ByteArray) : P (Array ArrowColSpec) := do
+  let rootU ← match readUInt32LE footer 0 with
+    | none => throw "Arrow IPC file: footer root"
+    | some u => pure u.toNat
+  let footObj := rootU
+  let fvt ← match tableVtable footer footObj with
+    | none => throw "Arrow IPC file: Footer vtable"
+    | some x => pure x
+  let schemaSlot ← match vtableFieldOffset footer fvt 1 with
+    | none => throw "Arrow IPC file: Footer.schema missing"
+    | some fo => pure (fieldAddr footObj fo)
+  let schObj ← match followUOffset footer schemaSlot with
+    | none => throw "Arrow IPC file: Schema table"
+    | some o => pure o
+  parseSchemaTopFields footer schObj
+
+def readArrowIpcFileFromBytes (b : ByteArray) : P Table := do
+  if b.size < 14 then throw "Arrow IPC file: too small"
+  unless fileHasArrowMagic b 0 do throw "Arrow IPC file: missing leading ARROW1"
+  unless fileHasArrowMagic b (b.size - 6) do throw "Arrow IPC file: missing trailing ARROW1"
+  let footerLenI ← match readInt32LE b (b.size - 10) with
+    | none => throw "Arrow IPC file: footer length"
+    | some x => pure (Int32.toInt x)
+  if footerLenI < 0 then throw "Arrow IPC file: negative footer length"
+  let footerLen := footerLenI.natAbs
+  if footerLen + 10 > b.size then throw "Arrow IPC file: footer OOB"
+  let footerStart := b.size - 10 - footerLen
+  let footer := b.extract footerStart (footerStart + footerLen)
+  let cols ← parseFooterSchema footer
+  let (offI, metaLenI, bodyLenI) ← parseFooterFirstRecordBatchBlock footer
+  let off := Int64.toInt offI
+  let metaLen := Int64.toInt metaLenI
+  let bodyLen := Int64.toInt bodyLenI
+  if off < 0 || metaLen < 0 || bodyLen < 0 then throw "Arrow IPC file: negative block field"
+  let pos := off.natAbs
+  if pos ≥ b.size then throw "Arrow IPC file: block offset OOB"
+  let p0 ← match readUInt32LE b pos with
+    | none => throw "Arrow IPC file: block header"
+    | some cont =>
+      pure (if cont == 0xffffffff then pos + 4 else pos)
+  if p0 + 4 > b.size then throw "Arrow IPC file: truncated metadata length"
+  let mlenI ← match readInt32LE b p0 with
+    | none => throw "Arrow IPC file: metadata length"
+    | some x => pure (Int32.toInt x)
+  if mlenI < 0 then throw "Arrow IPC file: negative metadata length"
+  let mlen := mlenI.natAbs
+  let metaStart := p0 + 4
+  if metaStart + mlen > b.size then throw "Arrow IPC file: truncated metadata"
+  let md := b.extract metaStart (metaStart + mlen)
+  let afterMeta := metaStart + mlen
+  let bodyOff := align8 afterMeta
+  if bodyOff + bodyLen.natAbs > b.size then throw "Arrow IPC file: truncated body"
+  let body := b.extract bodyOff (bodyOff + bodyLen.natAbs)
+  decodeRecordBatch md body cols
+
+def readArrowIpcFile (path : System.FilePath) : IO (P Table) := do
+  let bytes ← IO.FS.readBinFile path
+  pure (readArrowIpcFileFromBytes bytes)
+
 end Columnar.Arrow.IPC

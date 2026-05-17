@@ -2,7 +2,9 @@ import Init.Data.ByteArray
 import Columnar.Core.Bytes
 import Columnar.Orc.Protobuf
 import Columnar.Orc.FooterRead
+import Columnar.Orc.FooterProto
 import Columnar.Orc.RleV2
+import Columnar.Orc.StripeDecode
 import Columnar.Compression.Gzip
 import Columnar.Table
 import Columnar.Parquet.Encoding.Plain
@@ -35,18 +37,12 @@ def readOrcNumberOfRowsFromBytes (file : ByteArray) : IO (Except String Nat) := 
     match Columnar.Orc.Protobuf.findVarintField postscript 0 psLen 2 with
     | .error _ => 0
     | .ok v => v.toNat
-  let cap := min (footerCompLen * 64 + 65536) (256 * 1024 * 1024)
-  let fb ←
-    if compression == 0 then pure footerBlob
-    else if compression == 1 then
-      try
-        Columnar.Compression.Gzip.decompress footerBlob cap
-      catch _ =>
-        return Except.error "ORC: footer zlib decompress failed (zlib)"
-    else return Except.error "ORC: unsupported footer compression"
-  match Columnar.Orc.Protobuf.findVarintField fb 0 fb.size 6 with
-  | .error e => return Except.error e
-  | .ok rowsU => return Except.ok rowsU.toNat
+  match ← Columnar.Orc.FooterRead.decompressFooterBlob footerBlob compression with
+  | .error e => return .error e
+  | .ok fb =>
+  match Columnar.Orc.FooterProto.findFooterVarint fb 6 with
+  | .error e => return .error e
+  | .ok rows => return Except.ok rows
 
 def readOrcNumberOfRows (path : System.FilePath) : IO (Except String Nat) := do
   let bytes ← IO.FS.readBinFile path
@@ -111,9 +107,9 @@ private partial def collectFooterTypeBlobs (footer : ByteArray) (pos : Nat) (acc
         | .error e => throw e
         | .ok p2 => collectFooterTypeBlobs footer p2 acc
 
-/-- Read primitive `INT` column from a **single-stripe, uncompressed** ORC file with schema
-`struct{x:int}` (matches `Tests/fixtures/interop_orc_int32.orc`). Other layouts return an error. -/
-def readOrcPrimitivesFromBytes (file : ByteArray) (want : List String) : IO (Except String Columnar.Table) := do
+/-- Read primitive columns from a **single-stripe, uncompressed** ORC file with schema
+`struct{x:int}` (matches `Tests/fixtures/interop_orc_int32.orc`). -/
+private def readOrcPrimitivesSimpleFromBytes (file : ByteArray) (want : List String) : IO (Except String Columnar.Table) := do
   match ← Columnar.Orc.FooterRead.readFirstStripeLayout file with
   | .error e => return .error e
   | .ok (footerPlain, o, i, d, _f, r) =>
@@ -150,6 +146,14 @@ def readOrcPrimitivesFromBytes (file : ByteArray) (want : List String) : IO (Exc
                 | .ok ints =>
                   let vals : Array (Option PlainValue) := ints.map fun n => some (PlainValue.int32 n)
                   return .ok { columns := #[{ name := colName, values := vals }] }
+
+def readOrcPrimitivesFromBytes (file : ByteArray) (want : List String) : IO (Except String Columnar.Table) := do
+  match ← readOrcPrimitivesSimpleFromBytes file want with
+  | .ok tbl => return .ok tbl
+  | .error _ =>
+    match ← Columnar.Orc.StripeDecode.readOrcPrimitivesZlibStripe file want with
+    | .ok tbl => return .ok tbl
+    | .error e => return .error e
 
 def readOrcPrimitives (path : System.FilePath) (want : List String) : IO (Except String Columnar.Table) := do
   let bytes ← IO.FS.readBinFile path

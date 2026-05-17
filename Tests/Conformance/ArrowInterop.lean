@@ -12,6 +12,9 @@ def goldenMessagesPath : System.FilePath :=
 def goldenInt32StreamXPath : System.FilePath :=
   System.mkFilePath ["Tests", "goldens", "interop_arrow_int32_stream__x.txt"]
 
+def goldenInt32FileXPath : System.FilePath :=
+  System.mkFilePath ["Tests", "goldens", "interop_arrow_int32_file__x.txt"]
+
 private def expectNatGolden (path : System.FilePath) : IO (Except String Nat) := do
   let t ← IO.FS.readFile path
   let line := (String.trimAscii t).toString
@@ -19,10 +22,10 @@ private def expectNatGolden (path : System.FilePath) : IO (Except String Nat) :=
   | none => return .error "golden: expected decimal Nat line"
   | some n => return .ok n
 
-def run (ctx : Harness.Ctx) : IO Unit := do
+def runVendorMessageCount (ctx : Harness.Ctx) : IO Unit := do
   let p := Fixtures.arrowSchemaV6
   unless ← p.pathExists do
-    Harness.info "Interop Arrow IPC: SKIP (vendor/arrow-testing missing)"
+    Harness.info "Interop Arrow IPC: SKIP vendor schema_v6 (vendor/arrow-testing missing)"
     return
   unless ← goldenMessagesPath.pathExists do
     Harness.fail ctx "Interop Arrow IPC: golden sidecar missing"
@@ -36,8 +39,10 @@ def run (ctx : Harness.Ctx) : IO Unit := do
     | .ok got =>
       Harness.check ctx s!"Arrow IPC schema_v6.arrow message count ({got})" (got == want)
       Harness.info s!"Interop Arrow IPC: OK messages={got}"
-  let p2 := Fixtures.interopArrowInt32Stream
-  unless ← p2.pathExists do
+
+def runInteropStream (ctx : Harness.Ctx) : IO Unit := do
+  let p := Fixtures.interopArrowInt32Stream
+  unless ← p.pathExists do
     Harness.info "Interop Arrow IPC stream: SKIP (Tests/fixtures/interop_arrow_int32_stream.arrow missing; run scripts/export_interop_goldens.py)"
     return
   unless ← goldenInt32StreamXPath.pathExists do
@@ -46,11 +51,34 @@ def run (ctx : Harness.Ctx) : IO Unit := do
   match ← GoldenFmt.parseFile goldenInt32StreamXPath with
   | .error e => Harness.fail ctx e
   | .ok gspec =>
-    match ← Columnar.Arrow.IPC.readArrowIpcStreamFile p2 with
+    match ← Columnar.Arrow.IPC.readArrowIpcStreamFile p with
     | .error e => Harness.fail ctx s!"Arrow IPC readArrowIpcStreamFile: {e}"
     | .ok tbl =>
       match GoldenFmt.goldenMatches tbl gspec with
       | .error e => Harness.fail ctx s!"Interop Arrow IPC stream golden: {e}"
       | .ok _ => Harness.info "Interop Arrow IPC stream: OK interop_arrow_int32_stream.arrow column «x»"
+
+def runInteropFile (ctx : Harness.Ctx) : IO Unit := do
+  let p := Fixtures.interopArrowInt32File
+  unless ← p.pathExists do
+    Harness.info "Interop Arrow IPC file: SKIP (Tests/fixtures/interop_arrow_int32_file.arrow missing; run scripts/export_interop_goldens.py)"
+    return
+  unless ← goldenInt32FileXPath.pathExists do
+    Harness.fail ctx "Interop Arrow IPC file: golden sidecar missing"
+    return
+  match ← GoldenFmt.parseFile goldenInt32FileXPath with
+  | .error e => Harness.fail ctx e
+  | .ok gspec =>
+    match ← Columnar.Arrow.IPC.readArrowIpcFile p with
+    | .error e => Harness.fail ctx s!"Arrow IPC readArrowIpcFile: {e}"
+    | .ok tbl =>
+      match GoldenFmt.goldenMatches tbl gspec with
+      | .error e => Harness.fail ctx s!"Interop Arrow IPC file golden: {e}"
+      | .ok _ => Harness.info "Interop Arrow IPC file: OK interop_arrow_int32_file.arrow column «x»"
+
+def run (ctx : Harness.Ctx) : IO Unit := do
+  runVendorMessageCount ctx
+  runInteropStream ctx
+  runInteropFile ctx
 
 end Tests.Conformance.ArrowInterop

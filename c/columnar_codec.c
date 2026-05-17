@@ -144,6 +144,55 @@ LEAN_EXPORT lean_obj_res columnar_zlib_decompress(b_lean_obj_arg input, size_t d
 #endif
 }
 
+/* ORC zlib streams use raw deflate (windowBits = -15) after an optional 3-byte header. */
+LEAN_EXPORT lean_obj_res columnar_zlib_inflate_raw(b_lean_obj_arg input, size_t dst_cap, lean_obj_arg w) {
+  (void)w;
+#if COLUMNAR_HAS_ZLIB
+  z_stream strm;
+  memset(&strm, 0, sizeof(strm));
+  strm.avail_in = (uInt)ba_size(input);
+  strm.next_in = (Bytef *)ba_ptr(input);
+  if (inflateInit2(&strm, -15) != Z_OK) {
+    return mk_user_io_error("columnar: zlib raw inflate init failed");
+  }
+  size_t cap = dst_cap > 0 ? dst_cap : 65536;
+  lean_obj_res ba = lean_mk_empty_byte_array(lean_box(cap));
+  for (;;) {
+    strm.avail_out = (uInt)cap;
+    strm.next_out = (Bytef *)lean_sarray_cptr(ba);
+    int zst = inflate(&strm, Z_FINISH);
+    if (zst == Z_STREAM_END) {
+      inflateEnd(&strm);
+      lean_sarray_set_size(ba, (size_t)(cap - strm.avail_out));
+      return lean_io_result_mk_ok(ba);
+    }
+    if (zst == Z_BUF_ERROR && strm.avail_out == 0) {
+      inflateEnd(&strm);
+      cap *= 2;
+      lean_dec(ba);
+      ba = lean_mk_empty_byte_array(lean_box(cap));
+      memset(&strm, 0, sizeof(strm));
+      strm.avail_in = (uInt)ba_size(input);
+      strm.next_in = (Bytef *)ba_ptr(input);
+      if (inflateInit2(&strm, -15) != Z_OK) {
+        lean_dec(ba);
+        return mk_user_io_error("columnar: zlib raw inflate init failed");
+      }
+      continue;
+    }
+    inflateEnd(&strm);
+    lean_dec(ba);
+    return mk_user_io_error("columnar: zlib raw inflate failed");
+  }
+#else
+  (void)input;
+  (void)dst_cap;
+  return mk_user_io_error(
+      "columnar: zlib raw inflate unavailable: COLUMNAR_CODEC=1 when compiling, "
+      "lake -Kcolumnar.codec=1, link -lz (docs/FFI.md)");
+#endif
+}
+
 LEAN_EXPORT lean_obj_res columnar_brotli_decompress(b_lean_obj_arg input, size_t dst_cap, lean_obj_arg w) {
   (void)w;
 #if COLUMNAR_HAS_BROTLI

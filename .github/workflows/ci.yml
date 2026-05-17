@@ -19,6 +19,11 @@ jobs:
         with:
           auto-config: "true"
 
+      - name: Install bench reference deps (Ubuntu)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: python3 -m pip install --quiet pyarrow fastavro
+
       - name: Bench (quick)
         shell: bash
         env:
@@ -40,13 +45,16 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: conformance-report-${{ matrix.os }}
-          path: docs/conformance-report.json
+          if-no-files-found: warn
+          path: |
+            docs/conformance-report.json
+            bench/results/last-quick.json
 
   conformance-parquet:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch parquet-testing
+      - name: Fetch reference corpora (parquet-testing, avro, orc, arrow-testing)
         shell: bash
         run: bash scripts/fetch-fixtures.sh
       - uses: leanprover/lean-action@v1
@@ -71,7 +79,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libsnappy-dev libzstd-dev zlib1g-dev libbrotli-dev liblz4-dev
-      - name: Fetch parquet-testing
+      - name: Fetch reference corpora (parquet-testing, avro, orc, arrow-testing)
         shell: bash
         run: bash scripts/fetch-fixtures.sh
       - uses: leanprover/lean-action@v1
@@ -83,7 +91,9 @@ jobs:
           COLUMNAR_CODEC: "1"
           COLUMNAR_PHASE1_EXPLORE: "0"
           COLUMNAR_ENCODING_TIER_STRICT: "1"
+          COLUMNAR_INTEROP_STRICT: "1"
         run: |
+          lake clean
           lake build -Kcolumnar.codec=1
           lake exe tests -Kcolumnar.codec=1
 

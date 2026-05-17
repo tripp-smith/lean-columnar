@@ -24,10 +24,22 @@ Convenience wrapper (sets `COLUMNAR_CODEC` and passes `-Kcolumnar.codec=1`):
 ```bash
 bash scripts/with_native_codecs.sh build
 bash scripts/with_native_codecs.sh exe tests
+COLUMNAR_CODEC=1 bash scripts/with_native_codecs.sh build bench
 ```
+
+### `tests` and `bench` link model
+
+[`lakefile.lean`](../lakefile.lean) uses `meta if columnarNativeCodecsPkg` (driven by `COLUMNAR_CODEC=1` at Lake load) for **`lake exe tests`** and **`lake exe bench`**:
+
+- **Native:** `columnarCodecLinkSearchPaths` plus `-lsnappy`, `-lzstd`, `-lz`, `-lbrotlidec`, `-llz4` (macOS adds SDK and Homebrew `-L` paths under `/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib`, `/opt/homebrew/lib`, …).
+- **Stub:** `columnarZlibOnlyLinkArgs` — zlib only (ORC raw deflate via `columnar_zlib_inflate_raw`); Snappy/Zstd/Brotli/LZ4 remain stubbed in C.
 
 After changing codec settings, run `lake clean` then rebuild so `columnar_codec.o` and executables
 pick up the new flags.
+
+### ORC zlib (raw deflate)
+
+ORC stripe payloads use a **3-byte little-endian original length** prefix followed by **raw deflate** (`columnar_zlib_inflate_raw` with `inflateInit2(-15)`), not the zlib `uncompress` wrapper used for Parquet GZIP pages.
 
 ### OS matrix
 

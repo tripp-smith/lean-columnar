@@ -24,11 +24,29 @@ Other Phase-0 files from the plan are attempted; failures are reported as **SKIP
 ## Native codecs
 
 See [FFI.md](FFI.md). Set `COLUMNAR_CODEC=1` when building and pass **`lake -Kcolumnar.codec=1`** so
-the package links system libs, or use `bash scripts/with_native_codecs.sh exe tests`.
+the package links system libs, or use `bash scripts/with_native_codecs.sh exe tests` / `build bench`.
+Interop strict mode: `COLUMNAR_INTEROP_STRICT=1` (see [Conformance.md](Conformance.md)).
 
 **Test order:** `lake exe tests` runs the codec FFI contract **last**, after Parquet conformance.
 On some setups, linking real Snappy/Zstd/… and exercising them before other tests has been
 observed to destabilize the same process; scheduling codec checks last avoids that.
+
+## SciLean (optional)
+
+Tensor export lives in `ColumnarSciLean` (`Columnar.SciLean.Convert`) behind Lake `meta if` guards. The default build has no SciLean dependency.
+
+| Variable / flag | Effect |
+|-----------------|--------|
+| `COLUMNAR_SCILEAN=1` | `lake update` resolves SciLean + Mathlib (`scripts/with_scilean.sh`). |
+| `-Kcolumnar.scilean=1` | Link OpenBLAS on `lake build` / `lake exe` for `ColumnarSciLean` and `scilean_tests`. |
+
+```bash
+bash scripts/with_scilean.sh update
+bash scripts/with_scilean.sh build ColumnarSciLean
+bash scripts/with_scilean.sh exe scilean_tests
+```
+
+Install OpenBLAS (`libopenblas-dev` on Ubuntu; `brew install openblas` on macOS). See [Conformance.md](Conformance.md) §SciLean and [`plans/completed/05_scilean-bridge-and-schema-proofs.md`](../plans/completed/05_scilean-bridge-and-schema-proofs.md).
 
 ## Memory mapping (`mmap`)
 
@@ -85,8 +103,42 @@ For multi-GB inputs, compare `readParquet` vs `readParquetMmap` and record wall-
 - **Input path:** set **`COLUMNAR_BENCH_FILE`** to your corpus (defaults to `vendor/parquet-testing/data/binary.parquet`).
 - **Iterations:** use **`COLUMNAR_BENCH_LARGE=1`** to default to **one** iteration when `COLUMNAR_BENCH_ITERS` is unset (long runs).
 - **Generator:** `bash scripts/bench_large_mmap.sh` writes a multi-row-group INT32 file via `lake exe writer_roundtrip`, then runs `lake exe bench` with **`COLUMNAR_BENCH_MMAP=1`**. Tune **`COLUMNAR_BENCH_GEN_ROWS`** / **`COLUMNAR_BENCH_GEN_RG`** for size on disk.
-- **JSON:** `bench/results/last-quick.json` includes `file`, `mmap_elapsed_ms_total`, `mmap_mean_ms` when **`COLUMNAR_BENCH_MMAP=1`**.
+- **JSON:** `bench/results/last-quick.json` uses `schema_version` and a `workloads[]` array. When **`COLUMNAR_BENCH_MMAP=1`**, the registry includes a `parquet_mmap` entry (Lean `readParquetMmap` vs PyArrow `read_table` on the same bytes for wall-clock only).
 - **RSS:** On Linux wrap the **same** bench invocation with **`/usr/bin/time -v`** and compare `Maximum resident set size`; on macOS use **`time -l`** or Instruments. Document hardware, cold vs warm page cache, and generation env vars alongside the JSON artifact.
+
+## Benchmarks
+
+`lake exe bench` runs every selected workload in the registry ([`Bench/Registry.lean`](../Bench/Registry.lean)), writes [`bench/results/last-quick.json`](../bench/results/last-quick.json), and optionally times PyArrow via [`scripts/bench_reference.py`](../scripts/bench_reference.py). See [`bench/README.md`](../bench/README.md).
+
+| Variable | Effect |
+|----------|--------|
+| `COLUMNAR_BENCH_QUICK=1` | Fewer iterations (30 vs 40 default). |
+| `COLUMNAR_BENCH_ITERS=N` | Override iteration count. |
+| `COLUMNAR_BENCH_FILE` | Parquet path for `parquet_binary` and `parquet_mmap`. |
+| `COLUMNAR_BENCH_MMAP=1` | Include `parquet_mmap` workload. |
+| `COLUMNAR_BENCH_LARGE=1` | Default **1** iteration when `COLUMNAR_BENCH_ITERS` unset. |
+| `COLUMNAR_BENCH_SKIP_REFERENCE=1` | Lean-only timings (no Python subprocess). |
+| `COLUMNAR_BENCH_WORKLOADS=id1,id2` | Run a subset of registry ids. |
+
+**Stub vs native:** default builds use stub codecs except zlib for ORC raw inflate (macOS may link SDK zlib only). Snappy workloads (`avro_snappy`) need `COLUMNAR_CODEC=1` and `bash scripts/with_native_codecs.sh build bench`. Run `lake clean` after toggling codec link mode before comparing numbers.
+
+**Regression:** `bash scripts/capture_bench_baseline.sh` then `BENCH_BASELINE_JSON=bench/results/baseline-quick.json bash scripts/check_bench_regression.sh` (`BENCH_MAX_REGRESSION_PCT`, optional `BENCH_WORKLOAD_IDS`).
+
+## Interop (Avro / ORC / Arrow)
+
+Checked-in fixtures under `Tests/fixtures/interop_*` back conformance and bench. Regenerate goldens (not bench correctness):
+
+```bash
+python3 scripts/export_interop_goldens.py
+```
+
+Vendor paths (`vendor/avro`, `vendor/orc`, …) require `bash scripts/fetch-fixtures.sh`. **Do not** use `lake exe bench` for golden verification — use `lake exe tests`.
+
+## macOS testing
+
+- **`COLUMNAR_PARQUET_READER_OSX=1`:** run Parquet-heavy conformance (default on macOS skips those groups).
+- **`COLUMNAR_FORCE_MMAP=1`:** opt in to native mmap on macOS for bench/harness.
+- **`lake exe tests`:** interop runs before Parquet mmap groups; Arrow IPC runs before ORC zlib decode.
 
 ## Parquet read/write API (high level)
 
@@ -103,6 +155,13 @@ For multi-GB inputs, compare `readParquet` vs `readParquetMmap` and record wall-
 | Writer options | `Columnar.Parquet.Writer.WriteOptions` — `rowsPerRowGroup` splits output into multiple Parquet row groups (plain encoding, uncompressed codec in the current release). |
 | Row slice helper | `Columnar.Table.Table.sliceRows` |
 | Packed INT32/INT64 runs (`Subarray UInt8`) | `Columnar.Table.Column.plainInt32PackedSubarray?`, `plainInt64PackedSubarray?` (all-non-null columns only; see [`Columnar/Table/PlainViews.lean`](Columnar/Table/PlainViews.lean)) |
+| Avro OCF → Table | `Columnar.Avro.Container.readAvroOcf` / `readAvroOcfFromBytes` |
+| ORC row count | `Columnar.Orc.Reader.readOrcNumberOfRows` |
+| ORC primitive columns | `Columnar.Orc.Reader.readOrcPrimitives` (column name list) |
+| Arrow IPC stream | `Columnar.Arrow.IPC.readArrowIpcStreamFile` |
+| Arrow IPC file | `Columnar.Arrow.IPC.readArrowIpcFile` |
+| Table → float tensor data (optional) | `Columnar.SciLean.Convert.tableToFloatDataArray` (requires `ColumnarSciLean`) |
+| SciLean smoke tests | `lake exe scilean_tests` with `-Kcolumnar.scilean=1` |
 
 ## Roadmap
 

@@ -1,24 +1,28 @@
 import Init.Data.ByteArray
 import Columnar.Core.Bytes
 import Columnar.Orc.Protobuf
+import Columnar.Orc.FooterProto
 import Columnar.Compression.Gzip
+import Columnar.Orc.Compress
 
 namespace Columnar.Orc.FooterRead
 
 open Columnar.ByteArrayOps
 open Columnar.Orc.Protobuf
+open Columnar.Orc.FooterProto
 
 abbrev P := Except String
 
+/-- ORC file footers are often stored uncompressed even when `compression=ZLIB` (stripe streams use zlib). -/
 def decompressFooterBlob (footerBlob : ByteArray) (compression : Nat) : IO (Except String ByteArray) :=
   if compression == 0 then pure (.ok footerBlob)
   else if compression == 1 then
     let cap := min (footerBlob.size * 64 + 65536) (256 * 1024 * 1024)
     try
-      let fb ← Columnar.Compression.Gzip.decompress footerBlob cap
+      let fb ← Columnar.Orc.Compress.decompressOrcZlibBlob footerBlob cap
       pure (.ok fb)
-    catch _ =>
-      pure (.error "ORC: footer zlib decompress failed (zlib)")
+    catch e =>
+      pure (.error s!"ORC: zlib footer decompress failed ({e})")
   else pure (.error "ORC: unsupported footer compression")
 
 /-- Read postscript: footer compressed length (field 1) and compression kind (field 2). -/
@@ -83,6 +87,24 @@ private partial def parseStripeInformationBlob (b : ByteArray) : P (Nat × Nat �
         go p2 off idx data foot rows
   go 0 none none none none none
 
+/-- Parse first `StripeInformation` in Footer field 3 (group-aware protobuf walk). -/
+partial def parseFirstStripeInfoGroupAware (footerPlain : ByteArray) : P (Nat × Nat × Nat × Nat × Nat) :=
+  let rec walk (pos : Nat) : P (Nat × Nat × Nat × Nat × Nat) :=
+    if pos ≥ footerPlain.size then throw "ORC: stripe info not found"
+    else do
+      let (tag, p1) ← readTag footerPlain pos
+      let w := wireType tag
+      let fn := fieldNumber tag
+      if fn == 3 && w == 2 then
+        let (lenU, p2) ← readVarUInt64 footerPlain p1
+        let ln := lenU.toNat
+        if p2 + ln > footerPlain.size then throw "ORC: bad stripe delimited"
+        else parseStripeInformationBlob (footerPlain.extract p2 (p2 + ln))
+      else do
+        let p2 ← skipFieldGroupAware footerPlain p1 w
+        walk p2
+  walk 0
+
 /-- Parse first `StripeInformation` in Footer field 3 (offset, index, data, footer lengths, rows). -/
 partial def parseFirstStripeInfo (footerPlain : ByteArray) : P (Nat × Nat × Nat × Nat × Nat) :=
   let rec walk (pos : Nat) : P (Nat × Nat × Nat × Nat × Nat) :=
@@ -115,7 +137,7 @@ def readFirstStripeLayout (file : ByteArray) : IO (P (ByteArray × Nat × Nat ×
       match ← decompressFooterBlob footerBlob compression with
       | .error e => return .error e
       | .ok footerPlain =>
-        match parseFirstStripeInfo footerPlain with
+        match parseFirstStripeInfoGroupAware footerPlain with
         | .error e => return .error e
         | .ok (o, i, d, f, r) => return .ok (footerPlain, o, i, d, f, r)
 

@@ -47,9 +47,14 @@ def check (c : Ctx) (name : String) (ok : Bool) : IO Unit := do
 def info (s : String) : IO Unit :=
   IO.eprintln s
 
-/-- On macOS, full-file Parquet decode (`readParquet`, mmap streams) has triggered SIGSEGV in this
-binary after interop tests; CI runs Linux. Set `COLUMNAR_PARQUET_READER_OSX=1` to run these groups
-locally on macOS. -/
+/-- On macOS, full-file Parquet decode has triggered SIGSEGV after interop tests; CI runs Linux.
+Set `COLUMNAR_PARQUET_READER_OSX=1` to run Parquet-heavy groups locally on macOS. -/
+
+def interopStrict : IO Bool := do
+  match ← IO.getEnv "COLUMNAR_INTEROP_STRICT" with
+  | some s => pure ((String.trimAscii s).toString == "1")
+  | none => pure false
+
 def skipHeavyParquetReaderOnOSX (_groupLabel : String) : IO (Option String) := do
   unless System.Platform.isOSX do
     return none

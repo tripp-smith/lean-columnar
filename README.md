@@ -1,10 +1,12 @@
 # lean-columnar
 
+[![CI](https://github.com/tripp-smith/lean-columnar/actions/workflows/ci.yml/badge.svg)](https://github.com/tripp-smith/lean-columnar/actions/workflows/ci.yml)
+
 High-performance, zero-copy-oriented columnar formats for **Lean 4**: Parquet **reader** and
 **writer** (flat tables) with **optional native decompression** (Snappy, Zstd, gzip/zlib, Brotli,
 LZ4_RAW) when system libs are linked; broader Parquet/spec coverage is still in flight.
 
-**Interop readers:** Avro **OCF** (`readAvroOcf`, null / deflate / Snappy blocks), ORC **footer** row count (`readOrcNumberOfRows`) plus **primitive** single-stripe decode (`readOrcPrimitives` for the checked-in int32 fixture), and Arrow IPC **stream** walk (`ipcStreamMessageCount`) plus **RecordBatch → `Table`** (`readArrowIpcStreamFile`). Vendor-gated conformance plus checked-in interop fixtures; see [`plans/completed/06_interop-avro-orc-arrow-readers.md`](plans/completed/06_interop-avro-orc-arrow-readers.md), [`docs/Conformance.md`](docs/Conformance.md), and [`spec.md`](spec.md).
+**Interop readers:** Avro **OCF** (`readAvroOcf`, null / deflate / Snappy), ORC **footer** + zlib stripe primitives (`readOrcNumberOfRows`, `readOrcPrimitives` on `TestOrcFile.test1.orc` and checked-in fixtures), Arrow IPC **stream** and **file** (`readArrowIpcStreamFile`, `readArrowIpcFile`). Vendor-gated conformance plus checked-in interop fixtures; native verification via `COLUMNAR_CODEC=1` and `scripts/with_native_codecs.sh` (see [`docs/FFI.md`](docs/FFI.md)). Details: [`plans/completed/06_interop-avro-orc-arrow-readers.md`](plans/completed/06_interop-avro-orc-arrow-readers.md), [`docs/Conformance.md`](docs/Conformance.md).
 
 ## Quick start
 
@@ -31,6 +33,10 @@ bash scripts/with_scilean.sh build ColumnarSciLean
 bash scripts/with_scilean.sh exe scilean_tests
 ```
 
+## Benchmarks
+
+`COLUMNAR_BENCH_QUICK=1 lake exe bench` runs a multi-format quick bench (Parquet when vendor data is present, plus checked-in Avro/ORC/Arrow interop fixtures). Results land in [`bench/results/last-quick.json`](bench/results/last-quick.json) with Lean and PyArrow timings per workload. Capture a baseline with [`scripts/capture_bench_baseline.sh`](scripts/capture_bench_baseline.sh); compare regressions via [`scripts/check_bench_regression.sh`](scripts/check_bench_regression.sh). See [`bench/README.md`](bench/README.md), the Manual **Benchmarks** section, and [`docs/Conformance.md`](docs/Conformance.md) for env flags and CI.
+
 ## Docs
 
 - [`docs/Manual.md`](docs/Manual.md) — usage, mmap/streaming API, bench flags  
@@ -48,4 +54,24 @@ default, native decompress when enabled) is described in
 
 **POSIX mmap** (`readParquetMmap`, `openParquetFile`, `streamRowGroups`) and optional **packed primitive column views** (`plainInt64PackedBytes?`, etc.) are described in
 [`plans/completed/04_memory-map-zero-copy-api.md`](plans/completed/04_memory-map-zero-copy-api.md) and
-[`docs/Manual.md`](docs/Manual.md) (lifetimes, macOS opt-in `COLUMNAR_FORCE_MMAP=1`, WASM limits, large-file bench script `scripts/bench_large_mmap.sh`). Optional **SciLean** tensor export (`Columnar.SciLean.Convert`, `lake exe scilean_tests`) is summarized in [`plans/completed/05_scilean-bridge-and-schema-proofs.md`](plans/completed/05_scilean-bridge-and-schema-proofs.md). **Avro / ORC / Arrow IPC** readers (including Snappy Avro, ORC stripe primitives on the interop file, and Arrow stream decode) are summarized in [`plans/completed/06_interop-avro-orc-arrow-readers.md`](plans/completed/06_interop-avro-orc-arrow-readers.md).
+[`docs/Manual.md`](docs/Manual.md) (lifetimes, macOS opt-in `COLUMNAR_FORCE_MMAP=1`, WASM limits, large-file bench script `scripts/bench_large_mmap.sh`). Optional **SciLean** tensor export (`Columnar.SciLean.Convert`, `lake exe scilean_tests`) is summarized in [`plans/completed/05_scilean-bridge-and-schema-proofs.md`](plans/completed/05_scilean-bridge-and-schema-proofs.md). **Avro / ORC / Arrow IPC** readers (including Snappy Avro, ORC stripe primitives on the interop file, and Arrow stream decode) are summarized in [`plans/completed/06_interop-avro-orc-arrow-readers.md`](plans/completed/06_interop-avro-orc-arrow-readers.md). **Benchmarks and documentation parity** (multi-workload harness, regression JSON, doc/CI updates) are in [`plans/completed/07_benchmarks-and-documentation.md`](plans/completed/07_benchmarks-and-documentation.md).
+
+## Requirements
+
+- [Elan](https://github.com/leanprover/elan) (Lean **4.28.0-rc1** per [`lean-toolchain`](lean-toolchain))
+- For full conformance / Parquet vendor tests: `bash scripts/fetch-fixtures.sh`
+- Optional native codecs, SciLean, and bench reference timings: see [`docs/Manual.md`](docs/Manual.md) and [`docs/FFI.md`](docs/FFI.md)
+
+## Using as a dependency
+
+Add to your `lakefile.lean`:
+
+```lean
+require columnar from git "https://github.com/tripp-smith/lean-columnar.git"
+```
+
+Then `import Columnar` and use `readParquet`, `readAvroOcf`, etc. (see [`docs/Manual.md`](docs/Manual.md)).
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).

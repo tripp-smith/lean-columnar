@@ -3,3 +3,20 @@
 
 # Optional vendored Apache corpora (use `git submodule` or `scripts/fetch-fixtures.sh`)
 vendor/
+
+# Generated bench output (commit baseline-quick.json only when intentional)
+bench/results/last-quick.json
+bench/results/baseline-quick.json
+# macOS (case-insensitive) may write the same files under Bench/results/
+Bench/results/last-quick.json
+Bench/results/baseline-quick.json
+
+# OS / editor
+.DS_Store
+*.swp
+*~
+
+# Python
+__pycache__/
+*.pyc
+.venv/

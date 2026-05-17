@@ -39,8 +39,8 @@ def main : IO UInt32 := do
   -- Run interop before Parquet mmap/stream: native mmap teardown has faulted later groups on some macOS builds.
   group "Interop: vendor format fingerprints" (Tests.Conformance.InteropFingerprints.run ctx)
   group "Interop: Avro OCF values" (Tests.Conformance.AvroInterop.run ctx)
-  group "Interop: ORC footer rows" (Tests.Conformance.OrcInterop.run ctx)
   group "Interop: Arrow IPC stream walk" (Tests.Conformance.ArrowInterop.run ctx)
+  group "Interop: ORC footer rows" (Tests.Conformance.OrcInterop.run ctx)
   group "Conformance: Parquet value goldens" (Tests.Conformance.ParquetGoldens.run ctx)
   group "Conformance: mmap + streamRowGroups" (Tests.Conformance.ParquetMmap.run ctx)
   group "Conformance: Parquet Phase0 decode smoke" (Tests.Conformance.ParquetPhase0.run ctx)

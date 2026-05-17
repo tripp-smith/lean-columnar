@@ -22,7 +22,7 @@ Lean 4 excels here: its functional style + high-performance arrays/byte handling
 #### 2. Goals
 - **Primary**: Full Parquet 2.x reader + writer (including all encodings, compression codecs, and nested types) with zero-copy decoding and memory-mapped support.  
 - **Secondary (phased)**: Avro (row + object container) and ORC support under the same unified API.  
-- **Performance**: Match or beat native C++ Arrow/Parquet on columnar scans (benchmarks required).  
+- **Performance**: Tracked on measured workloads (`parquet_binary`, `arrow_stream`, `avro_minimal`, `orc_int32`, …) in [`bench/results/last-quick.json`](bench/results/last-quick.json); see [`docs/Conformance.md`](docs/Conformance.md) for the registry and regression workflow (no unqualified “beat Arrow” claim without data).  
 - **Usability**: Simple high-level API for data engineers + low-level access for performance hackers.  
 - **Ecosystem value**: Become the de-facto standard for columnar I/O in Lean-based data/ML tools.
 
@@ -126,7 +126,7 @@ deriving ParquetSerializable
 
 #### 7. Testing, Benchmarks & Quality
 - **Test suite**: Official Parquet test data + generated round-trips.  
-- **Benchmarks**: vs. pyarrow, Polars, DuckDB on real ML datasets (e.g., Hugging Face Parquet files).  
+- **Benchmarks**: Quick multi-format harness vs. PyArrow on [`bench/results/last-quick.json`](bench/results/last-quick.json) workloads; optional large corpora via `COLUMNAR_BENCH_FILE` / nightly scripts (see [`docs/Conformance.md`](docs/Conformance.md)). Broader comparisons (Polars, DuckDB, Hugging Face Parquet) remain future work.  
 - **CI**: Lake + GitHub Actions (Linux/macOS/Windows).  
 - **Docs**: Full manual + examples (CSV ↔ Parquet converter, SciLean ML pipeline).  
 - **License**: Apache 2.0 (compatible with Parquet/Arrow).

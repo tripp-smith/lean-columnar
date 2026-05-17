@@ -92,5 +92,6 @@ abbrev readOrcNumberOfRows := Columnar.Orc.Reader.readOrcNumberOfRows
 abbrev ipcStreamMessageCount := Columnar.Arrow.IPC.ipcStreamMessageCount
 
 abbrev readArrowIpcStreamFile := Columnar.Arrow.IPC.readArrowIpcStreamFile
+abbrev readArrowIpcFile := Columnar.Arrow.IPC.readArrowIpcFile
 
 abbrev readOrcPrimitives := Columnar.Orc.Reader.readOrcPrimitives

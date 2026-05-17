@@ -1,0 +1,3 @@
+record
+bytes
+{'name': 'Foo', 'kind': 'FOO', 'hash': b'0123456789012345'}

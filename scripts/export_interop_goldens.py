@@ -156,6 +156,28 @@ def write_orc_golden() -> None:
     dst = OUT / "interop_orc_test1_rows.txt"
     dst.write_text(f"{n}\n")
     print("wrote", dst, "rows=", n)
+    tbl = orc.ORCFile(str(p)).read()
+    for col in ("int1", "boolean1"):
+        if col not in tbl.column_names:
+            print("skip ORC column golden", col)
+            continue
+        py_vals = tbl.column(col).to_pylist()
+        kind = "int32" if col == "int1" else "bool"
+        lines = [col, kind] + [str(v).lower() if kind == "bool" else str(v) for v in py_vals]
+        g = OUT / f"interop_orc_test1__{col}.txt"
+        g.write_text("\n".join(lines) + "\n")
+        print("wrote", g)
+    tbl = orc.ORCFile(str(p)).read()
+    for col in ("int1", "boolean1"):
+        if col not in tbl.column_names:
+            print("skip ORC column golden", col)
+            continue
+        py_vals = tbl.column(col).to_pylist()
+        kind = "int32" if col == "int1" else "bool"
+        lines = [col, kind] + [str(v).lower() if kind == "bool" else str(v) for v in py_vals]
+        gpath = OUT / f"interop_orc_test1__{col}.txt"
+        gpath.write_text("\n".join(lines) + "\n")
+        print("wrote", gpath)
 
 
 def arrow_ipc_message_count(data: bytes) -> int:
@@ -222,6 +244,44 @@ def write_orc_int32_fixture() -> None:
     print("wrote", path, g)
 
 
+def write_arrow_int32_file_fixture() -> None:
+    import pyarrow as pa
+    import pyarrow.ipc as ipc
+
+    FIX.mkdir(parents=True, exist_ok=True)
+    OUT.mkdir(parents=True, exist_ok=True)
+    schema = pa.schema([("x", pa.int32())])
+    batch = pa.record_batch([pa.array([7, 42], type=pa.int32())], schema=schema)
+    path = FIX / "interop_arrow_int32_file.arrow"
+    with pa.OSFile(str(path), "wb") as sink:
+        with ipc.new_file(sink, schema) as writer:
+            writer.write(batch)
+    g = OUT / "interop_arrow_int32_file__x.txt"
+    g.write_text("x\nint32\n7\n42\n")
+    print("wrote", path, g)
+
+
+def write_avro_vendor_golden() -> None:
+    p = ROOT / "vendor" / "avro" / "share" / "test" / "data" / "schemas" / "simple" / "data.avro"
+    if not p.is_file():
+        print("skip Avro vendor golden (vendor/avro missing)")
+        return
+    import fastavro
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    with p.open("rb") as fo:
+        rows = list(fastavro.reader(fo))
+    if not rows:
+        print("skip Avro vendor golden (empty data.avro)")
+        return
+    col = "text"
+    vals = [r[col] for r in rows[:3]]
+    lines = [col, "utf8"] + vals
+    g = OUT / "interop_avro_vendor_simple__text.txt"
+    g.write_text("\n".join(lines) + "\n")
+    print("wrote", g, "col=", col)
+
+
 def write_arrow_int32_stream_fixture() -> None:
     import pyarrow as pa
     import pyarrow.ipc as ipc
@@ -243,10 +303,12 @@ def write_arrow_int32_stream_fixture() -> None:
 def main() -> None:
     write_avro_minimal()
     write_avro_snappy()
+    write_avro_vendor_golden()
     write_orc_golden()
     write_orc_int32_fixture()
     write_arrow_golden()
     write_arrow_int32_stream_fixture()
+    write_arrow_int32_file_fixture()
 
 
 if __name__ == "__main__":

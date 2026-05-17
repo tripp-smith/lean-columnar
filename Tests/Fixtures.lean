@@ -38,6 +38,12 @@ def interopOrcInt32 : System.FilePath :=
 def interopArrowInt32Stream : System.FilePath :=
   System.mkFilePath ["Tests", "fixtures", "interop_arrow_int32_stream.arrow"]
 
+def interopArrowInt32File : System.FilePath :=
+  System.mkFilePath ["Tests", "fixtures", "interop_arrow_int32_file.arrow"]
+
+def avroVendorSimple : System.FilePath :=
+  System.mkFilePath ["vendor", "avro", "share", "test", "data", "schemas", "simple", "data.avro"]
+
 def orcTest1 : System.FilePath :=
   System.mkFilePath ["vendor", "orc", "examples", "TestOrcFile.test1.orc"]
 
